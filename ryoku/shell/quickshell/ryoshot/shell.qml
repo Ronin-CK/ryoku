@@ -641,7 +641,8 @@ ShellRoot {
             break;
         case "search":
             root.shutter();
-            root.runSearch(path);
+            searchProc.run(path);
+            root.quitSoon();
             break;
         default:
             root.shutter();
@@ -676,90 +677,14 @@ ShellRoot {
         runOcr({ x: g.x, y: g.y }, { x: g.x + g.w, y: g.y + g.h });
     }
 
-    function runSearch(file) {
-        root.exported = true;
-        Quickshell.execDetached(["sh", "-c",
-            "cropJpg=\"/tmp/ryoshot-lens-$$.jpg\"\n" +
-            "lensHtml=\"/tmp/ryoshot-lens-$$.html\"\n" +
-            "if ! magick \"$1\" -resize '1000x1000>' -strip -quality 85 \"$cropJpg\" 2>/dev/null; then\n" +
-            "  cropJpg=\"$1\"\n" +
-            "fi\n" +
-            "B64=$(base64 -w0 \"$cropJpg\" 2>/dev/null || base64 \"$cropJpg\")\n" +
-            "cat <<EOF > \"$lensHtml\"\n" +
-            "<!DOCTYPE html>\n" +
-            "<html>\n" +
-            "<head><meta charset=\"utf-8\"><title>Google Lens</title></head>\n" +
-            "<body style=\"margin:0;display:flex;justify-content:center;align-items:center;height:100vh;background:#111;color:#fff;font-family:system-ui\">\n" +
-            "  <p>Searching with Google Lens…</p>\n" +
-            "  <form id=\"f\" method=\"POST\" enctype=\"multipart/form-data\" action=\"https://lens.google.com/v3/upload\"></form>\n" +
-            "  <script>\n" +
-            "    var b = atob(\"$B64\");\n" +
-            "    var a = new Uint8Array(b.length);\n" +
-            "    for (var i = 0; i < b.length; i++) a[i] = b.charCodeAt(i);\n" +
-            "    var d = new DataTransfer();\n" +
-            "    d.items.add(new File([a], \"i.jpg\", { type: \"image/jpeg\" }));\n" +
-            "    var inp = document.createElement(\"input\");\n" +
-            "    inp.type = \"file\";\n" +
-            "    inp.name = \"encoded_image\";\n" +
-            "    inp.files = d.files;\n" +
-            "    document.getElementById(\"f\").appendChild(inp);\n" +
-            "    document.getElementById(\"f\").submit();\n" +
-            "  </script>\n" +
-            "</body>\n" +
-            "</html>\n" +
-            "EOF\n" +
-            "browser_cmd=\"\"\n" +
-            "def_b=$(xdg-settings get default-web-browser 2>/dev/null || xdg-mime query default x-scheme-handler/https 2>/dev/null)\n" +
-            "ryoku_b=$(jq -r '.desktop.apps.browser // empty' \"${XDG_CONFIG_HOME:-$HOME/.config}/ryoku/desktop.json\" 2>/dev/null)\n" +
-            "if [ -n \"$ryoku_b\" ] && command -v \"$ryoku_b\" >/dev/null 2>&1; then\n" +
-            "  browser_cmd=\"$ryoku_b\"\n" +
-            "elif [ -n \"$def_b\" ] && command -v gtk-launch >/dev/null 2>&1; then\n" +
-            "  browser_cmd=\"gtk-launch $def_b\"\n" +
-            "elif [ -n \"$BROWSER\" ] && command -v \"$BROWSER\" >/dev/null 2>&1; then\n" +
-            "  browser_cmd=\"$BROWSER\"\n" +
-            "elif command -v zen-browser >/dev/null 2>&1; then\n" +
-            "  browser_cmd=\"zen-browser\"\n" +
-            "elif command -v zen >/dev/null 2>&1; then\n" +
-            "  browser_cmd=\"zen\"\n" +
-            "elif command -v firefox >/dev/null 2>&1; then\n" +
-            "  browser_cmd=\"firefox\"\n" +
-            "elif command -v google-chrome >/dev/null 2>&1; then\n" +
-            "  browser_cmd=\"google-chrome\"\n" +
-            "elif command -v brave >/dev/null 2>&1; then\n" +
-            "  browser_cmd=\"brave\"\n" +
-            "elif command -v chromium >/dev/null 2>&1; then\n" +
-            "  browser_cmd=\"chromium\"\n" +
-            "else\n" +
-            "  browser_cmd=\"xdg-open\"\n" +
-            "fi\n" +
-            "case \"$browser_cmd\" in\n" +
-            "  *zen*|*firefox*|*floorp*|*librewolf*) $browser_cmd --new-tab \"$lensHtml\" >/dev/null 2>&1 & ;;\n" +
-            "  *) $browser_cmd \"$lensHtml\" >/dev/null 2>&1 & ;;\n" +
-            "esac\n" +
-            "sleep 0.15\n" +
-            "b_class=\"\"\n" +
-            "for c in \"${def_b%.desktop}\" \"${browser_cmd##*/}\" \"zen\" \"firefox\" \"google-chrome\" \"chromium\" \"brave-browser\" \"librewolf\" \"floorp\" \"vivaldi-stable\" \"microsoft-edge\"; do\n" +
-            "  [ -n \"$c\" ] || continue\n" +
-            "  if hyprctl clients -j 2>/dev/null | grep -qi \"\\\"class\\\": *\\\"$c\\\"\"; then\n" +
-            "    b_class=\"$c\"\n" +
-            "    break\n" +
-            "  fi\n" +
-            "done\n" +
-            "if [ -n \"$b_class\" ]; then\n" +
-            "  hyprctl dispatch \"hl.dsp.focus({ window = \\\"class:$b_class\\\" })\" >/dev/null 2>&1 || true\n" +
-            "fi\n" +
-            "(sleep 15; rm -f -- \"$1\" \"$cropJpg\" \"$lensHtml\") &\n",
-            "sh", file]);
-        root.quitSoon();
-    }
-
     // Crop, upload, then hand the URL to a reverse-image search, matching iRiS.
     function doSearchRegion() {
         var tmp = "/tmp/ryoshot-search-" + Date.now() + ".png";
         grabTo(tmp, function (ok) {
             if (!ok) { Qt.quit(); return; }
             root.shutter();
-            root.runSearch(tmp);
+            searchProc.run(tmp);
+            root.quitSoon();
         });
     }
 
@@ -1414,6 +1339,28 @@ ShellRoot {
         }
     }
 
+    // Direct Google Lens reverse search via local auto-submitting form.
+    Process {
+        id: searchProc
+        function run(file) {
+            command = ["sh", "-c",
+                "crop=\"/tmp/ryoshot-lens-$$.jpg\"\n" +
+                "html=\"/tmp/ryoshot-lens-$$.html\"\n" +
+                "magick \"$1\" -resize '1000x1000>' -strip -quality 85 \"$crop\" 2>/dev/null || crop=\"$1\"\n" +
+                "b64=$(base64 -w0 \"$crop\" 2>/dev/null || base64 \"$crop\")\n" +
+                "cat <<EOF > \"$html\"\n" +
+                "<!DOCTYPE html><html><body style=\"margin:0;display:flex;justify-content:center;align-items:center;height:100vh;background:#111;color:#fff;font-family:system-ui\"><p>Searching with Google Lens…</p><form id=\"f\" method=\"POST\" enctype=\"multipart/form-data\" action=\"https://lens.google.com/v3/upload\"></form><script>var b=atob(\"$b64\"),a=new Uint8Array(b.length);for(var i=0;i<b.length;i++)a[i]=b.charCodeAt(i);var d=new DataTransfer();d.items.add(new File([a],\"i.jpg\",{type:\"image/jpeg\"}));var inp=document.createElement(\"input\");inp.type=\"file\";inp.name=\"encoded_image\";inp.files=d.files;document.getElementById(\"f\").appendChild(inp);document.getElementById(\"f\").submit();</script></body></html>\n" +
+                "EOF\n" +
+                "b=$(xdg-settings get default-web-browser 2>/dev/null)\n" +
+                "cls=\"${b%.desktop}\"\n" +
+                "( gtk-launch \"$b\" \"$html\" 2>/dev/null || xdg-open \"$html\" ) &\n" +
+                "sleep 0.15\n" +
+                "hyprctl dispatch \"hl.dsp.focus({ window = \\\"class:${cls:-zen}\\\" })\" >/dev/null 2>&1 || true\n" +
+                "(sleep 15; rm -f -- \"$1\" \"$crop\" \"$html\") &\n",
+                "sh", file];
+            running = true;
+        }
+    }
 
     Process {
         id: stitchProc
