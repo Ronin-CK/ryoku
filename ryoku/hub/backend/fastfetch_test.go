@@ -75,6 +75,28 @@ func rowByKind(rows []ffRow, kind string) *ffRow {
 	return nil
 }
 
+func TestFastfetchJapaneseGlossPreference(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", dir)
+	if !fastfetchJapaneseGlossEnabled() {
+		t.Fatal("missing setting should preserve the current Japanese gloss")
+	}
+	if err := os.MkdirAll(filepath.Join(dir, "ryoku"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "ryoku", "shell.json"), []byte(`{"showJapaneseGloss":false}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if fastfetchJapaneseGlossEnabled() {
+		t.Fatal("disabled setting was ignored")
+	}
+	input := []byte(`{\"format\":\"RYOKU · 力 · a hand-built Linux desktop\"}`)
+	got := string(applyFastfetchJapaneseGloss(input, false))
+	if strings.Contains(got, "力") || !strings.Contains(got, "RYOKU · a hand-built Linux desktop") {
+		t.Fatalf("Japanese gloss remained in effective config: %s", got)
+	}
+}
+
 func TestStripJSONC(t *testing.T) {
 	in := `{ "$schema": "https://x/y.json", // trailing
   "a": 1, /* block */ "b": "//not a comment" }`
@@ -661,5 +683,130 @@ func TestShippedRiceTaglinesNameTheRunningDistribution(t *testing.T) {
 		if r := rowByKind(m.Rows, "tagline"); r == nil || !strings.Contains(r.Text, "a hand-built Void desktop") {
 			t.Errorf("%s tagline on Void = %+v", readout, r)
 		}
+	}
+}
+
+func TestFastfetchRendererMarkerSurvivesSave(t *testing.T) {
+	loadSample(t)
+	if err := os.WriteFile(fastfetchPalettePath(), []byte(sampleWallpaperPalette), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	const marker = "// ryoku:renderer ryoku-filigree/bin/ryoku-fetch"
+	path := fastfetchConfigPath()
+	if err := os.WriteFile(path, []byte(marker+"\n"+sampleFF), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	m, err := loadFastfetch()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if m.Renderer != "ryoku-filigree/bin/ryoku-fetch" {
+		t.Fatalf("renderer = %q, want ryoku-filigree/bin/ryoku-fetch", m.Renderer)
+	}
+
+	built, err := buildFastfetch(m)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasPrefix(string(built), marker+"\n") {
+		t.Fatalf("fixed rebuild dropped the renderer marker:\n%s", built)
+	}
+	effective, err := buildFastfetchEffective(m)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasPrefix(string(effective), marker+"\n") {
+		t.Fatalf("wallpaper rebuild dropped the renderer marker:\n%s", effective)
+	}
+
+	m.Renderer = ""
+	payload, err := json.Marshal(m)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := runFastfetch([]string{"save", string(payload)}); err != nil {
+		t.Fatalf("save: %v", err)
+	}
+	saved, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasPrefix(string(saved), marker+"\n") {
+		t.Fatalf("save dropped the renderer marker:\n%s", saved)
+	}
+
+	if err := os.WriteFile(path, []byte(sampleFF), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	m, err = loadFastfetch()
+	if err != nil {
+		t.Fatal(err)
+	}
+	saved, err = buildFastfetch(m)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(saved), "ryoku:renderer") {
+		t.Fatalf("plain preset gained a renderer marker:\n%s", saved)
+	}
+}
+
+func TestFastfetchRecolorLineSurvivesSave(t *testing.T) {
+	loadSample(t)
+	if err := os.WriteFile(fastfetchPalettePath(), []byte(sampleWallpaperPalette), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	const line = "// ryoku:recolor keys=primary title=foreground output=onSurface"
+	path := fastfetchConfigPath()
+	if err := os.WriteFile(path, []byte(line+"\n"+sampleFF), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	m, err := loadFastfetch()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := "keys=primary title=foreground output=onSurface"; m.Recolor != want {
+		t.Fatalf("recolor = %q, want %q", m.Recolor, want)
+	}
+	built, err := buildFastfetch(m)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasPrefix(string(built), line+"\n") {
+		t.Fatalf("rebuild dropped the recolor line:\n%s", built)
+	}
+
+	m.Recolor = ""
+	payload, err := json.Marshal(m)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := runFastfetch([]string{"save", string(payload)}); err != nil {
+		t.Fatalf("save: %v", err)
+	}
+	saved, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasPrefix(string(saved), line+"\n") {
+		t.Fatalf("save dropped the recolor line:\n%s", saved)
+	}
+	if roles := ffRecolorRoles(saved); roles["keys"] != "primary" || roles["output"] != "onSurface" {
+		t.Fatalf("roles no longer parse from the saved config: %v", roles)
+	}
+
+	if err := os.WriteFile(path, []byte(sampleFF), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	plain, err := loadFastfetch()
+	if err != nil {
+		t.Fatal(err)
+	}
+	rebuilt, err := buildFastfetch(plain)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(rebuilt), "ryoku:recolor") {
+		t.Fatalf("plain config gained a recolor line:\n%s", rebuilt)
 	}
 }

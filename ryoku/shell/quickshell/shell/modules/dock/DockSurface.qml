@@ -14,11 +14,12 @@ import shell.modules.stage.frame
 // strip when autohide is on.
 //
 // Reveal is the point of this surface. The band shows when the dock is not
-// autohiding, or the pointer is on it, or nothing is focused, or a pin is being
-// dragged -- and is forced away under a fullscreen window unless the pointer is
-// in the peek strip. Hiding slides the band out by its own depth, leaving a 3 px
-// peek inside the input mask; the empty margins stay click-through because the
-// mask is only the band rect unioned with that strip.
+// autohiding, or the pointer is on it, or its workspace is empty, or nothing is
+// focused, or a pin is being dragged -- and is forced away under a fullscreen
+// window unless the pointer is in the peek strip. Hiding slides the band out by
+// its own depth, leaving a 3 px peek inside the input mask; the empty margins
+// stay click-through because the mask is only the band rect unioned with that
+// strip.
 //
 // While the Stage Editor frames this monitor the dock is part of the desktop
 // preview, so it holds revealed and rises above the lifted desktop.
@@ -31,7 +32,8 @@ PanelWindow {
 
     // ── sizing ────────────────────────────────────────────────────────────────
     readonly property bool autohide: Dock.cfg("autohide", false)
-    readonly property real edgeGap: 8 + Math.max(0, Math.min(64, Number(Dock.cfg("edgeGap", 0))))
+    readonly property real configuredEdgeGap: Math.max(-24, Math.min(64, Number(Dock.cfg("edgeGap", 0))))
+    readonly property real edgeGap: Math.max(0, 8 + dock.configuredEdgeGap)
     readonly property real peek: 3
     readonly property real depth: band.baseSize
     // Inner clearance for a magnified icon to rise into, plus room for the hover
@@ -55,12 +57,11 @@ PanelWindow {
     visible: Dock.cfg("enabled", false)
     // `screen` is PanelWindow's own property, set per monitor from shell.qml.
     WlrLayershell.namespace: "ryoku-dock"
-    // Staying on one layer avoids remapping the dock when the editor opens.
-    WlrLayershell.layer: WlrLayer.Overlay
+    WlrLayershell.layer: dock.stageEditing ? WlrLayer.Overlay : (dock.autohide ? WlrLayer.Top : WlrLayer.Bottom)
     exclusionMode: ExclusionMode.Normal
     // A pinned (non-autohide) dock reserves its depth; an autohiding one floats
     // over the desktop and reserves nothing.
-    exclusiveZone: (!dock.autohide && dock.visible) ? (dock.depth + dock.edgeGap) : 0
+    exclusiveZone: (!dock.autohide && dock.visible) ? Math.max(0, dock.depth + dock.edgeGap) : 0
 
     anchors {
         left: dock.horizontal || dock.edge === "left"
@@ -75,6 +76,11 @@ PanelWindow {
     readonly property bool monFullscreen: Wm.outputHasFullscreen(dock.screen ? dock.screen.name : "")
     readonly property bool pointerInside: band.hovered || peekHover.hovered
     readonly property string screenName: dock.screen ? dock.screen.name : ""
+    readonly property bool workspaceEmpty: {
+        if (!Dock.cfg("revealOnEmpty", true)) return false;
+        const active = (Wm.workspaces ?? []).find(ws => ws.active && ws.output === dock.screenName);
+        return active !== undefined && !(Wm.windows ?? []).some(w => w.workspace === active.id);
+    }
     readonly property bool menuHere: Dock.menuOpen && Dock.menuScreen === dock.screenName
     readonly property bool revealed: {
         // The editor is showing this dock's settings page: it holds open.
@@ -85,6 +91,7 @@ PanelWindow {
             return dock.pointerInside;
         return !dock.autohide
             || dock.pointerInside
+            || dock.workspaceEmpty
             || !Dock.anyFocused
             || band.dragging
             || dock.menuHere;

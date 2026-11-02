@@ -37,11 +37,12 @@ changing a page's look.
     prunes it: `prune` drops every unstarred entry with its files and prints the
     refreshed report. The daemon owns the entries, so the Hub never measures or
     deletes around it.
-  - `ryoku-hub lock list|set|apply-greeter <slug>` manages installed qylock
-    themes: `list` is the local inventory, `set` writes the in-session
-    preference and applies the SDDM greeter, and `apply-greeter` is the
-    privileged half under `/usr/share/sddm/themes/ryoku`. RyoStore owns remote
-    discovery and installation; Settings owns activation only.
+  - `ryoku-hub lock list|set|apply-greeter` manages installed qylock themes:
+    `list` is the local inventory, `set` writes the in-session preference and
+    applies the SDDM greeter, and `apply-greeter` carries the global 12/24-hour
+    preference through the privileged install under
+    `/usr/share/sddm/themes/ryoku`. RyoStore owns remote discovery and
+    installation; Settings owns activation only.
 - `quickshell/` The UI, hand-written Quickshell (QML), deployed to
   `~/.config/quickshell/hub` and launched with `qs -c hub`:
   - `shell.qml` the `FloatingWindow`; `Hub.qml` the app (rail + content + the data
@@ -143,7 +144,8 @@ edits stage in the canvas and only touch the live screens on Apply.
 
 ## Search
 
-A global fuzzy finder lives in the sidebar (focus it with `Ctrl + K`). Typing
+A global fuzzy finder lives in the sidebar (focus it with `Ctrl + K`, or the
+more familiar `Ctrl + F`). Typing
 searches content across every section: it ranks matching keybinds (each tagged
 with its category) and lists matching section names you can jump to. The matcher
 is a small subsequence scorer in `quickshell/fuzzy.js`.

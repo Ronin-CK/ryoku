@@ -36,20 +36,46 @@ const (
 )
 
 var (
-	ffAnsiRe        = regexp.MustCompile("\x1b\\[[0-9;]*m")
-	ffTanRe         = regexp.MustCompile("\x1b\\[38;2;" + regexp.QuoteMeta(ffTan) + "m(.*?)\x1b\\[0m")
-	ffLabelRe       = regexp.MustCompile("\x1b\\[1;38;2;" + regexp.QuoteMeta(ffBright) + "m(.*?)\x1b\\[0m")
-	ffKeysColor     = regexp.MustCompile(`(?:38;2;)?([0-9]+;[0-9]+;[0-9]+)`)
-	ffHexColor      = regexp.MustCompile(`^#[0-9A-Fa-f]{6}$`)
-	ffTrueColorRe   = regexp.MustCompile("\x1b\\[((?:1;)?)38;2;([0-9]+;[0-9]+;[0-9]+)m")
-	ffRecolorLineRe = regexp.MustCompile(`(?m)^[\t ]*//[\t ]*ryoku:recolor[\t ]+([^\r\n]+)`)
-	ffRecolorPairRe = regexp.MustCompile(`([A-Za-z][A-Za-z0-9_-]*)=([A-Za-z][A-Za-z0-9_-]*)`)
+	ffAnsiRe         = regexp.MustCompile("\x1b\\[[0-9;]*m")
+	ffTanRe          = regexp.MustCompile("\x1b\\[38;2;" + regexp.QuoteMeta(ffTan) + "m(.*?)\x1b\\[0m")
+	ffLabelRe        = regexp.MustCompile("\x1b\\[1;38;2;" + regexp.QuoteMeta(ffBright) + "m(.*?)\x1b\\[0m")
+	ffKeysColor      = regexp.MustCompile(`(?:38;2;)?([0-9]+;[0-9]+;[0-9]+)`)
+	ffHexColor       = regexp.MustCompile(`^#[0-9A-Fa-f]{6}$`)
+	ffTrueColorRe    = regexp.MustCompile("\x1b\\[((?:1;)?)38;2;([0-9]+;[0-9]+;[0-9]+)m")
+	ffRecolorLineRe  = regexp.MustCompile(`(?m)^[\t ]*//[\t ]*ryoku:recolor[\t ]+([^\r\n]+)`)
+	ffRendererLineRe = regexp.MustCompile(`(?m)^//[\t ]*ryoku:renderer[\t ]+(\S+)[\t ]*$`)
+	ffRecolorPairRe  = regexp.MustCompile(`([A-Za-z][A-Za-z0-9_-]*)=([A-Za-z][A-Za-z0-9_-]*)`)
 	// ffSlotTrueColorRe matches a rice's inline fastfetch colour placeholder
 	// "{#38;2;R;G;B}", whose R;G;B is a fixed brand tone baked into the format
 	// (fastfetch resolves it to literal ANSI). The wallpaper pass rewrites the
 	// ones that name a palette role.
 	ffSlotTrueColorRe = regexp.MustCompile(`\{#((?:1;)?38;2;)([0-9]+;[0-9]+;[0-9]+)\}`)
 )
+
+func ffRendererLine(config []byte) string {
+	if match := ffRendererLineRe.FindSubmatch(config); match != nil {
+		return string(match[1])
+	}
+	return ""
+}
+
+func ffRecolorLine(config []byte) string {
+	if match := ffRecolorLineRe.FindSubmatch(config); match != nil {
+		return strings.TrimSpace(string(match[1]))
+	}
+	return ""
+}
+
+func ffWithMarkers(config []byte, renderer, recolor string) []byte {
+	var head []byte
+	if renderer != "" {
+		head = append(head, "// ryoku:renderer "+renderer+"\n"...)
+	}
+	if recolor != "" {
+		head = append(head, "// ryoku:recolor "+recolor+"\n"...)
+	}
+	return append(head, config...)
+}
 
 func ffBaseOS() string {
 	if base, ok := os.LookupEnv("RYOKU_BASE_OS"); ok {
@@ -79,6 +105,31 @@ func fastfetchPalettePath() string {
 }
 func fastfetchPaletteStatePath() string {
 	return filepath.Join(filepath.Dir(fastfetchDir()), "ryoku", "fastfetch.json")
+}
+func fastfetchJapaneseGlossEnabled() bool {
+	b, err := os.ReadFile(filepath.Join(configHome(), "ryoku", "shell.json"))
+	if err != nil {
+		return true
+	}
+	var settings struct {
+		ShowJapaneseGloss *bool `json:"showJapaneseGloss"`
+	}
+	if json.Unmarshal(b, &settings) != nil || settings.ShowJapaneseGloss == nil {
+		return true
+	}
+	return *settings.ShowJapaneseGloss
+}
+
+func applyFastfetchJapaneseGloss(b []byte, enabled bool) []byte {
+	if enabled {
+		return b
+	}
+	replacer := strings.NewReplacer(
+		"RYOKU · 力 · ", "RYOKU · ",
+		`RYOKU \u00b7 \u529b \u00b7 `, `RYOKU \u00b7 `,
+		`RYOKU \u00B7 \u529B \u00B7 `, `RYOKU \u00B7 `,
+	)
+	return []byte(replacer.Replace(string(b)))
 }
 
 // stripJSONC removes // line and /* */ block comments from a JSONC document,
@@ -170,12 +221,14 @@ type ffRow struct {
 }
 
 type ffModel struct {
-	Logo    ffLogo          `json:"logo"`
-	Accent  string          `json:"accent"`
-	Palette string          `json:"palette"`
-	Rows    []ffRow         `json:"rows"`
-	Display json.RawMessage `json:"display,omitempty"`
-	Schema  string          `json:"schema,omitempty"`
+	Logo     ffLogo          `json:"logo"`
+	Accent   string          `json:"accent"`
+	Palette  string          `json:"palette"`
+	Renderer string          `json:"renderer,omitempty"`
+	Recolor  string          `json:"recolor,omitempty"`
+	Rows     []ffRow         `json:"rows"`
+	Display  json.RawMessage `json:"display,omitempty"`
+	Schema   string          `json:"schema,omitempty"`
 }
 
 type ffPalette struct {
@@ -317,6 +370,16 @@ func runFastfetch(args []string) error {
 				return err
 			}
 		}
+		if m.Renderer == "" || m.Recolor == "" {
+			if current, err := os.ReadFile(fastfetchConfigPath()); err == nil {
+				if m.Renderer == "" {
+					m.Renderer = ffRendererLine(current)
+				}
+				if m.Recolor == "" {
+					m.Recolor = ffRecolorLine(current)
+				}
+			}
+		}
 		b, err := buildFastfetch(m)
 		if err != nil {
 			return err
@@ -409,7 +472,7 @@ func loadFastfetch() (ffModel, error) {
 	if err := json.Unmarshal(stripJSONC(raw), &doc); err != nil {
 		return ffModel{}, fmt.Errorf("parse config.jsonc: %w", err)
 	}
-	m := ffModel{Schema: doc.Schema, Display: doc.Display, Accent: ffDisplayAccent(doc.Display), Palette: readFastfetchPaletteMode(), Logo: ffNormalizeLogo(doc.Logo)}
+	m := ffModel{Schema: doc.Schema, Display: doc.Display, Accent: ffDisplayAccent(doc.Display), Palette: readFastfetchPaletteMode(), Logo: ffNormalizeLogo(doc.Logo), Renderer: ffRendererLine(raw), Recolor: ffRecolorLine(raw)}
 	baseOS := ffBaseOS()
 	for _, rm := range doc.Modules {
 		m.Rows = append(m.Rows, ffNormalizeModule(rm, baseOS))
@@ -580,7 +643,7 @@ func buildFastfetch(m ffModel) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	return append(b, '\n'), nil
+	return ffWithMarkers(append(b, '\n'), m.Renderer, m.Recolor), nil
 }
 
 func ffApplyPaletteToRow(raw json.RawMessage, palette ffPalette) (json.RawMessage, error) {
@@ -798,10 +861,10 @@ func buildFastfetchEffectiveWithRoles(m ffModel, recolor map[string]string) ([]b
 	if err != nil {
 		return nil, err
 	}
-	return append(b, '\n'), nil
+	return ffWithMarkers(append(b, '\n'), m.Renderer, m.Recolor), nil
 }
 
-func fastfetchEffectiveFresh(path string, mode string) bool {
+func fastfetchEffectiveFresh(path string, mode string, japaneseGloss bool) bool {
 	out, err := os.Stat(path)
 	if err != nil || out.IsDir() {
 		return false
@@ -821,8 +884,13 @@ func fastfetchEffectiveFresh(path string, mode string) bool {
 			return false
 		}
 	}
+	shellStore := filepath.Join(configHome(), "ryoku", "shell.json")
+	if info, err := os.Stat(shellStore); err == nil && out.ModTime().Before(info.ModTime()) {
+		return false
+	}
+	signature := fmt.Sprintf("%s|japanese=%t", mode, japaneseGloss)
 	stored, err := os.ReadFile(effectiveModeMarker(path))
-	if err != nil || strings.TrimSpace(string(stored)) != mode {
+	if err != nil || strings.TrimSpace(string(stored)) != signature {
 		return false
 	}
 	if executable, err := os.Executable(); err == nil {
@@ -834,12 +902,11 @@ func fastfetchEffectiveFresh(path string, mode string) bool {
 	return true
 }
 
-// effectiveModeMarker is the sidecar path that records which palette mode
-// produced the effective config at path. The palette mode cannot be detected by
-// mtime alone: a state file that is *removed* (returning to the wallpaper
-// default) has no timestamp to compare, so a stale fixed-mode cache would be
-// served. Storing the resolved mode beside the cache makes every transition
-// (set, change, unset) visible.
+// effectiveModeMarker is the sidecar path that records which effective inputs
+// produced the config at path. A state-file removal and the Japanese gloss
+// preference cannot be detected reliably by comparing source mtimes alone, so
+// the signature beside the cache makes every mode or preference transition
+// rebuild it.
 func effectiveModeMarker(path string) string { return path + ".mode" }
 
 // writeEffectiveFastfetch renders the config fastfetch should actually read into
@@ -849,7 +916,8 @@ func effectiveModeMarker(path string) string { return path + ".mode" }
 // retint never rewrites their layout or comments); wallpaper mode rebuilds it
 func writeEffectiveFastfetch(path string) error {
 	mode := readFastfetchPaletteMode()
-	if fastfetchEffectiveFresh(path, mode) {
+	japaneseGloss := fastfetchJapaneseGlossEnabled()
+	if fastfetchEffectiveFresh(path, mode, japaneseGloss) {
 		return nil
 	}
 	raw, err := os.ReadFile(fastfetchConfigPath())
@@ -858,7 +926,7 @@ func writeEffectiveFastfetch(path string) error {
 	}
 	var b []byte
 	if mode != ffPaletteWallpaper {
-		b = raw
+		b = applyFastfetchJapaneseGloss(raw, japaneseGloss)
 	} else {
 		model, err := loadFastfetch()
 		if err != nil {
@@ -871,10 +939,12 @@ func writeEffectiveFastfetch(path string) error {
 		}
 		b = built
 	}
+	b = applyFastfetchJapaneseGloss(b, japaneseGloss)
 	if err := atomicWrite(path, b, 0o600); err != nil {
 		return err
 	}
-	return atomicWrite(effectiveModeMarker(path), []byte(mode+"\n"), 0o600)
+	signature := fmt.Sprintf("%s|japanese=%t\n", mode, japaneseGloss)
+	return atomicWrite(effectiveModeMarker(path), []byte(signature), 0o600)
 }
 
 // ffApplyAccentToDisplay writes the accent into display.color.keys so the key
@@ -993,6 +1063,7 @@ func previewFastfetch(m ffModel) error {
 	if err != nil {
 		return err
 	}
+	b = applyFastfetchJapaneseGloss(b, fastfetchJapaneseGlossEnabled())
 	tmp, err := os.CreateTemp("", "ryoku-ff-*.jsonc")
 	if err != nil {
 		return err

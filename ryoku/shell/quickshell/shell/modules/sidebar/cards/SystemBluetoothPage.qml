@@ -1,8 +1,6 @@
 pragma ComponentBehavior: Bound
 
 import QtQuick
-import Quickshell
-import Quickshell.Bluetooth
 import Quickshell.Io
 import shell.services
 import Ryoku.Ui.Singletons
@@ -15,18 +13,18 @@ Item {
     required property bool active
     signal backRequested()
 
-    readonly property var adapter: Bluetooth.defaultAdapter
-    readonly property bool adapterAvailable: root.adapter !== null
-    readonly property bool adapterEnabled: root.adapterAvailable && root.adapter.enabled
-    readonly property bool scanning: root.adapterEnabled && root.adapter.discovering
+    readonly property var adapter: BluetoothPower.adapter
+    readonly property bool adapterAvailable: BluetoothPower.available
+    readonly property bool adapterEnabled: BluetoothPower.enabled
+    readonly property bool scanning: root.adapter !== null && root.adapterEnabled && root.adapter.discovering
     property var discoveryAdapter: null
     property string busyAddress: ""
     property string errorText: ""
     readonly property bool busy: linkProcess.running
     readonly property bool motionAllowed: root.active && !Tokens.reduceMotion && !Motion.reduce
 
-    readonly property var devices: !root.adapterEnabled || !Bluetooth.devices
-        ? [] : (Bluetooth.devices.values || []).filter(device => !!device)
+    readonly property var devices: root.adapterEnabled
+        ? BluetoothPower.devices.filter(device => !!device) : []
     readonly property var connectedDevices: root.devices.filter(device => device && device.connected)
     readonly property var pairedDevices: root.devices.filter(device => device && !device.connected && (device.paired || device.bonded))
     readonly property var discoveredDevices: root.devices.filter(device => device && !device.connected && !device.paired && !device.bonded)
@@ -369,7 +367,8 @@ Item {
                     spacing: Tokens.s1 * root.s
                     Text {
                         width: parent.width
-                        text: !root.adapterAvailable ? I18n.tr("No Bluetooth hardware")
+                        text: BluetoothPower.blocked ? I18n.tr("Bluetooth is blocked")
+                            : !root.adapterAvailable ? I18n.tr("No Bluetooth hardware")
                             : !root.adapterEnabled ? I18n.tr("Bluetooth is off")
                             : root.connectedDevices.length === 1 ? BtLink.label(root.connectedDevices[0])
                             : root.connectedDevices.length > 1 ? I18n.tr("%1 devices connected").arg(root.connectedDevices.length)

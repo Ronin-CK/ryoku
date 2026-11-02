@@ -41,6 +41,7 @@ FocusScope {
 
     readonly property var actionItem: item || ({})
     readonly property string actionKey: StoreLogic.itemKey(actionItem)
+    readonly property string competingLabel: StoreLogic.competingActionLabel(busyKey, actionKey, installStage)
     readonly property var screenshots: Array.isArray(actionItem.screenshots) ? actionItem.screenshots : []
     readonly property int screenshotCount: screenshots.length
     // The gallery and lightbox present whatever previews the product ships:
@@ -71,10 +72,13 @@ FocusScope {
     readonly property bool isCommunityPlugin: String(actionItem.category || "") === "plugins"
             && !!(actionItem.metadata && actionItem.metadata.community === true)
     readonly property bool isOmarchyPlugin: String(actionItem.category || "") === "omarchy-plugins"
+    readonly property bool isFlathubApp: String(actionItem.category || "") === "flatpak"
     readonly property bool isUnsandboxedPlugin: isCommunityPlugin || isOmarchyPlugin
-    readonly property string trustLabel: isOmarchyPlugin
-            ? String(actionItem.verificationStatus || I18n.tr("UNVERIFIED")).toUpperCase()
-            : I18n.tr("COMMUNITY")
+    readonly property string trustLabel: isFlathubApp
+            ? I18n.tr("FLATHUB %1").arg(String(actionItem.verificationStatus || "unverified").toUpperCase())
+            : (isOmarchyPlugin
+               ? String(actionItem.verificationStatus || I18n.tr("UNVERIFIED")).toUpperCase()
+               : I18n.tr("COMMUNITY"))
     readonly property var components: (actionItem.metadata && Array.isArray(actionItem.metadata.items)) ? actionItem.metadata.items : []
     readonly property var coreComponents: components.filter(c => String(c.tier || "core") !== "optional")
     readonly property var optionalComponents: components.filter(c => String(c.tier || "core") === "optional")
@@ -123,7 +127,7 @@ FocusScope {
     // Bundle component lists need the dossier body. Media stays in the adjacent
     // gallery plate; richer dossiers still pin copy and actions to opposite ends.
     readonly property bool hasBodyContent: isBundle
-    readonly property bool dossierAnchored: isBundle || screenshotCount > 0 || isUnsandboxedPlugin
+    readonly property bool dossierAnchored: isBundle || screenshotCount > 0 || isUnsandboxedPlugin || isFlathubApp
     readonly property real targetHeight: Math.max(1, height - Tokens.s6 * 2)
     readonly property rect effectiveOrigin: originRect.width > 0 && originRect.height > 0
             ? originRect
@@ -572,7 +576,7 @@ FocusScope {
                 Rectangle {
                     id: communityTag
                     objectName: "ryostore-detail-community-tag"
-                    visible: detail.isUnsandboxedPlugin
+                    visible: detail.isUnsandboxedPlugin || detail.isFlathubApp
                     width: communityTagLabel.implicitWidth + Tokens.s3 * 2
                     height: communityTagLabel.implicitHeight + Tokens.s2
                     radius: Tokens.radius
@@ -688,7 +692,7 @@ FocusScope {
             Rectangle {
                 objectName: "ryostore-detail-community-warning"
                 width: parent.width
-                visible: detail.isUnsandboxedPlugin
+                visible: detail.isUnsandboxedPlugin || detail.isFlathubApp
                 implicitHeight: communityWarningRow.implicitHeight
                         + (dossier.compact ? Tokens.s2 : Tokens.s3) * 2
                 height: implicitHeight
@@ -719,13 +723,15 @@ FocusScope {
                         width: parent.width
                                 - (communityWarningMark.visible
                                    ? communityWarningMark.width + parent.spacing : 0)
-                        text: detail.isOmarchyPlugin
-                                ? (dossier.compact
-                                   ? I18n.tr("Runs unsandboxed with your shell permissions. Review the source before enabling.")
-                                   : I18n.tr("This plugin runs unsandboxed code inside your shell with your permissions. Review its source before enabling it."))
-                                : (dossier.compact
-                                   ? I18n.tr("Community plugin. Inspect its code before granting shell access.")
-                                   : I18n.tr("Community plugin. Ryoku does not review or maintain it: it runs inside your shell with your permissions, so inspect its code before you trust it."))
+                        text: detail.isFlathubApp
+                                ? I18n.tr("Flathub application. Ryostore does not review it. Check its source and permissions. New apps install system-wide when available (authorization may be required), otherwise through an existing user remote.")
+                                : (detail.isOmarchyPlugin
+                                   ? (dossier.compact
+                                      ? I18n.tr("Runs unsandboxed with your shell permissions. Review the source before enabling.")
+                                      : I18n.tr("This plugin runs unsandboxed code inside your shell with your permissions. Review its source before enabling it."))
+                                   : (dossier.compact
+                                      ? I18n.tr("Community plugin. Inspect its code before granting shell access.")
+                                      : I18n.tr("Community plugin. Ryoku does not review or maintain it: it runs inside your shell with your permissions, so inspect its code before you trust it.")))
                         color: Tokens.inkDim
                         font.family: Tokens.ui
                         font.pixelSize: Tokens.fSmall
@@ -825,14 +831,16 @@ FocusScope {
                     visible: detail.isBundle
                     text: detail.busyKey === detail.actionKey && detail.installStage !== ""
                             ? I18n.tr(detail.installStage)
-                            : (detail.actionItem.updateAvailable === true
-                               ? I18n.tr("UPDATE SELECTED") : I18n.tr("INSTALL SELECTED"))
+                            : (detail.competingLabel !== "" ? I18n.tr(detail.competingLabel)
+                               : (detail.actionItem.updateAvailable === true
+                                  ? I18n.tr("UPDATE SELECTED") : I18n.tr("INSTALL SELECTED")))
                     primary: true
                     busy: detail.busyKey === detail.actionKey
                     reducedMotion: detail.reducedMotion
                     progressDone: detail.installProgressDone
                     progressTotal: detail.installProgressTotal
-                    armed: detail.item !== null && detail.selectedNames.length > 0
+                    armed: detail.item !== null && detail.busyKey === ""
+                            && detail.selectedNames.length > 0
                             && !StoreLogic.isDownloadPaused(detail.actionItem)
                             && !StoreLogic.isUnavailable(detail.actionItem)
                     onAct: detail.triggerInstallSelected()
@@ -841,7 +849,8 @@ FocusScope {
                 InstallAction {
                     objectName: "ryostore-detail-install-all"
                     visible: detail.isBundle
-                    text: detail.actionItem.updateAvailable === true ? I18n.tr("UPDATE ALL") : I18n.tr("INSTALL ALL")
+                    text: detail.competingLabel !== "" ? I18n.tr(detail.competingLabel)
+                            : (detail.actionItem.updateAvailable === true ? I18n.tr("UPDATE ALL") : I18n.tr("INSTALL ALL"))
                     armed: detail.item !== null && detail.busyKey === ""
                             && !StoreLogic.isDownloadPaused(detail.actionItem)
                             && !StoreLogic.isUnavailable(detail.actionItem)
@@ -854,7 +863,8 @@ FocusScope {
                     visible: !detail.isBundle
                     text: detail.busyKey === detail.actionKey && detail.installStage !== ""
                             ? I18n.tr(detail.installStage)
-                            : I18n.tr(StoreLogic.primaryAction(detail.actionItem))
+                            : (detail.competingLabel !== "" ? I18n.tr(detail.competingLabel)
+                               : I18n.tr(StoreLogic.primaryAction(detail.actionItem)))
                     primary: true
                     busy: detail.busyKey === detail.actionKey
                     installed: StoreLogic.primaryAction(detail.actionItem) === "INSTALLED"
@@ -862,6 +872,7 @@ FocusScope {
                     progressDone: detail.installProgressDone
                     progressTotal: detail.installProgressTotal
                     armed: detail.item !== null
+                            && detail.busyKey === ""
                             && !installed
                             && !StoreLogic.isDownloadPaused(detail.actionItem)
                             && !StoreLogic.isUnavailable(detail.actionItem)

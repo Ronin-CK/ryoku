@@ -113,6 +113,13 @@ Rectangle {
     property bool advanced: false
     onAdvancedChanged: Quickshell.execDetached(["ryoku-hub", "config", "set", "advanced", hub.advanced ? "1" : "0"])
 
+    // The daemon owns this preference; the shared file reader covers startup
+    // before the first settings frame arrives.
+    readonly property bool showJapaneseGloss: Settings.ready
+        ? Settings.get("showJapaneseGloss") !== false
+        : UiPreferences.showJapaneseGloss
+    readonly property string brandMark: showJapaneseGloss ? "力" : "R"
+
     // The full catalogue. `wired` marks the pages whose content and
     // persistence are ported; the rest render an honest porting plate rather
     // than a settings page that cannot save. `needs` is what the active window
@@ -573,7 +580,7 @@ Rectangle {
         "weatherLocation": "", "weatherUnit": "auto", "formatLocale": "",
         "general.clock_format_24_h": false,
         "reloadCover": ReloadCoverModel.empty(),
-        "language": "Auto", "barStyle": "orpheus", "obi": {}, "nacre": NacreConfig.defaultConfig(), "qsbar": {}, "dock": {},
+        "language": "Auto", "barStyle": "orpheus", "showJapaneseGloss": true, "obi": {}, "nacre": NacreConfig.defaultConfig(), "qsbar": {}, "dock": {},
         "notifications.show_images": false,
         "deckFrostEnabled": true, "deckFrost": 0.45,
         "clipboard.widthPercent": 65, "clipboard.heightPercent": 42, "clipboard.bottomPercent": 0,
@@ -1073,11 +1080,11 @@ Rectangle {
 
     Keys.onEscapePressed: {
         if (diffPop.open) diffPop.open = false;
-        else if (hub.query !== "") { hub.query = ""; searchField.clear(); }
+        else if (hub.query !== "") { hub.query = ""; searchField.clear(); hub.searchCursor = 0; }
         else hub.requestQuit();
     }
     Keys.onPressed: (e) => {
-        if (e.key === Qt.Key_K && (e.modifiers & Qt.ControlModifier)) {
+        if ((e.key === Qt.Key_K || e.key === Qt.Key_F) && (e.modifiers & Qt.ControlModifier)) {
             searchField.grabFocus();
             e.accepted = true;
         }
@@ -1108,7 +1115,7 @@ Rectangle {
                 Row {
                     anchors { left: parent.left; verticalCenter: parent.verticalCenter; leftMargin: Tokens.s4 }
                     spacing: Tokens.s3
-                    Text { text: "力"; color: Tokens.ink; font.family: Tokens.jp; font.pixelSize: 22 }
+                    Text { text: hub.brandMark; color: Tokens.ink; font.family: Tokens.jp; font.pixelSize: 22 }
                     Column {
                         spacing: 1
                         anchors.verticalCenter: parent.verticalCenter
@@ -1132,8 +1139,20 @@ Rectangle {
                 width: parent.width
                 toolbar: true
                 placeholder: I18n.tr("Search settings…")
-                onEdited: (t) => hub.query = t
-                onAccepted: hub.activateSearch(0)
+                onEdited: (t) => { hub.query = t; hub.searchCursor = 0 }
+                onAccepted: hub.activateSearch(hub.searchCursor)
+                Keys.onUpPressed: (e) => {
+                    if (hub.searchResults.length === 0) return;
+                    hub.searchCursor = (hub.searchCursor - 1 + hub.searchResults.length) % hub.searchResults.length;
+                    searchList.positionViewAtIndex(hub.searchCursor, ListView.Contain);
+                    e.accepted = true;
+                }
+                Keys.onDownPressed: (e) => {
+                    if (hub.searchResults.length === 0) return;
+                    hub.searchCursor = (hub.searchCursor + 1) % hub.searchResults.length;
+                    searchList.positionViewAtIndex(hub.searchCursor, ListView.Contain);
+                    e.accepted = true;
+                }
             }
         }
 
@@ -1321,7 +1340,7 @@ Rectangle {
                                 Text {
                                     id: navKana
                                     anchors { right: parent.right; rightMargin: Tokens.s3; verticalCenter: parent.verticalCenter }
-                                    text: hub.jpName[navItem.modelData.key] || ""
+                                    text: hub.showJapaneseGloss ? (hub.jpName[navItem.modelData.key] || "") : ""
                                     color: navItem.sel ? Tokens.inkOnBoneDim : Tokens.inkFaint
                                     font.family: Tokens.jp; font.pixelSize: 12
                                     Behavior on color { ColorAnimation { duration: Tokens.snap } }
@@ -1502,7 +1521,7 @@ Rectangle {
             Row {
                 spacing: Tokens.s2
                 Rectangle { width: 16; height: 1; color: Tokens.ink; anchors.verticalCenter: parent.verticalCenter }
-                Text { text: "力"; color: Tokens.ink; font.family: Tokens.jp; font.pixelSize: 11; anchors.verticalCenter: parent.verticalCenter }
+                Text { text: hub.brandMark; color: Tokens.ink; font.family: Tokens.jp; font.pixelSize: 11; anchors.verticalCenter: parent.verticalCenter }
                 Text {
                     text: I18n.tr(hub.groupFor(hub.section)); color: Tokens.inkMuted
                     font.family: Tokens.ui; font.pixelSize: 9; font.weight: Font.Medium
@@ -1681,8 +1700,12 @@ Rectangle {
     // The rail search opens a results card under the field (not a cramped rail
     // list). Picking a result navigates to its page and, for a real setting,
     // scrolls it into view and flashes it -- the jump-to-setting the old search
-    // never did. Enter takes the top hit; Escape (the field clears) dismisses.
+    // never did. Enter takes the selected hit; Escape (the field clears)
+    // dismisses; Up/Down walk the hits while the field keeps focus.
     property string pendingFocusKey: ""
+    // Which hit the keyboard is on. Resets to 0 on every edit and on dismissal,
+    // so a refined query or a reopened search never selects a stale row.
+    property int searchCursor: 0
     function activateSearch(i) {
         var r = hub.searchResults[i];
         if (!r) return;
@@ -1693,6 +1716,7 @@ Rectangle {
         hub.pendingFocusKey = (r.isPage || !r.key) ? "" : r.key;
         hub.query = "";
         searchField.clear();
+        hub.searchCursor = 0;
         if (hub.pendingFocusKey !== "") { focusTimer.tries = 0; focusTimer.restart(); }
     }
     // bold the matched run in a result label (StyledText).
@@ -1722,7 +1746,7 @@ Rectangle {
         x: rail.x + railHead.x + searchField.x
         y: rail.y + railHead.y + searchField.y + searchField.height + Tokens.s2
         width: Math.min(480, hub.width - x - Tokens.s5)
-        height: Math.min(440, list.contentHeight + head.height + Tokens.s3 * 2 + Tokens.s1)
+        height: Math.min(440, searchList.contentHeight + head.height + Tokens.s3 * 2 + Tokens.s1)
 
         Rectangle {
             anchors.fill: parent
@@ -1742,7 +1766,12 @@ Rectangle {
                 font.family: Tokens.mono; font.pixelSize: 9; font.letterSpacing: 1.2
                 anchors.verticalCenter: parent.verticalCenter
             }
-            Item { width: Math.max(0, parent.width - 170); height: 1 }
+            Item { width: Math.max(0, parent.width - 210); height: 1 }
+            Text {
+                text: (hub.searchCursor + 1) + " / " + hub.searchResults.length
+                color: Tokens.ink; font.family: Tokens.mono; font.pixelSize: 9; font.weight: Font.Medium
+                anchors.verticalCenter: parent.verticalCenter
+            }
             Text {
                 text: hub.searchResults.length + (hub.searchResults.length === 1 ? I18n.tr(" HIT") : I18n.tr(" HITS"))
                 color: Tokens.inkFaint; font.family: Tokens.mono; font.pixelSize: 9
@@ -1750,7 +1779,7 @@ Rectangle {
             }
         }
         ListView {
-            id: list
+            id: searchList
             anchors { left: parent.left; right: parent.right; top: head.bottom; bottom: parent.bottom }
             anchors.margins: Tokens.s2; anchors.topMargin: Tokens.s1
             clip: true
@@ -1765,7 +1794,11 @@ Rectangle {
                 width: ListView.view.width
                 height: 46
                 radius: Tokens.radius
-                color: rrh.containsMouse ? Tokens.tint10 : "transparent"
+                // the keyboard cursor and the pointer hover share one highlight:
+                // a result is active when either of them is on it, and the
+                // behavior eases between the two so a click after a key press
+                // looks like a continuation, not a jump.
+                color: (rrh.containsMouse || rr.index === hub.searchCursor) ? Tokens.tint10 : "transparent"
                 Behavior on color { ColorAnimation { duration: Tokens.snap } }
                 Column {
                     anchors { left: parent.left; right: kseal.left; verticalCenter: parent.verticalCenter }
@@ -1788,7 +1821,7 @@ Rectangle {
                 Text {
                     id: kseal
                     anchors { right: parent.right; rightMargin: Tokens.s3; verticalCenter: parent.verticalCenter }
-                    text: hub.jpName[rr.modelData.section] || ""
+                    text: hub.showJapaneseGloss ? (hub.jpName[rr.modelData.section] || "") : ""
                     color: Tokens.inkFaint; font.family: Tokens.jp; font.pixelSize: 12
                 }
                 MouseArea {
@@ -1796,6 +1829,7 @@ Rectangle {
                     anchors.fill: parent
                     hoverEnabled: true
                     cursorShape: Qt.PointingHandCursor
+                    onEntered: hub.searchCursor = rr.index
                     onClicked: hub.activateSearch(rr.index)
                 }
             }

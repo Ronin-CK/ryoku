@@ -44,6 +44,7 @@ Item {
     property bool vaultExists: false
     property int vaultFiles: 0
     property bool hermesInstalled: false
+    property string hermesVersion: ""
     property bool hermesConfigured: false
     property int agentsPresent: 0
     property int agentsWired: 0
@@ -108,6 +109,7 @@ Item {
                     pg.vaultFiles = (typeof v.files === "number") ? v.files : 0;
                     var h = o.hermes || ({});
                     pg.hermesInstalled = h.installed === true;
+                    pg.hermesVersion = h.version || "";
                     pg.hermesConfigured = h.configured === true;
                     var ags = o.agents || [];
                     var present = 0, wired = 0;
@@ -291,7 +293,7 @@ Item {
             anchors.verticalCenter: parent.verticalCenter
             spacing: Tokens.s2
             Text {
-                text: hd.kanji; color: Tokens.alert; font.family: Tokens.jp
+                text: UiPreferences.text(hd.kanji, ""); color: Tokens.alert; font.family: Tokens.jp
                 font.pixelSize: 13; anchors.verticalCenter: parent.verticalCenter
             }
             Text {
@@ -333,7 +335,7 @@ Item {
                     font.pixelSize: 12; anchors.verticalCenter: parent.verticalCenter
                 }
                 Text {
-                    text: fc.kanji; color: Tokens.inkDim; font.family: Tokens.jp
+                    text: UiPreferences.text(fc.kanji, ""); color: Tokens.inkDim; font.family: Tokens.jp
                     font.pixelSize: 12; anchors.verticalCenter: parent.verticalCenter
                 }
             }
@@ -552,6 +554,7 @@ Item {
                         spacing: Tokens.s2
                         Text {
                             text: "羅針"; color: Tokens.alert; font.family: Tokens.jp; font.pixelSize: 13
+                            visible: UiPreferences.showJapaneseGloss
                             anchors.verticalCenter: parent.verticalCenter
                         }
                         Text {
@@ -599,7 +602,7 @@ Item {
                         spacing: 6
                         Row {
                             spacing: Tokens.s2
-                            Text { text: "羅針"; color: Tokens.ink; font.family: Tokens.jp; font.pixelSize: 15; anchors.verticalCenter: parent.verticalCenter }
+                            Text { visible: UiPreferences.showJapaneseGloss; text: "羅針"; color: Tokens.ink; font.family: Tokens.jp; font.pixelSize: 15; anchors.verticalCenter: parent.verticalCenter }
                             Text {
                                 text: I18n.tr("RASHIN"); color: Tokens.ink; font.family: Tokens.display
                                 font.pixelSize: 13; anchors.verticalCenter: parent.verticalCenter
@@ -641,7 +644,7 @@ Item {
                         spacing: 6
                         Row {
                             spacing: Tokens.s2
-                            Text { text: "徘徊"; color: Tokens.alert; font.family: Tokens.jp; font.pixelSize: 12; anchors.verticalCenter: parent.verticalCenter }
+                            Text { visible: UiPreferences.showJapaneseGloss; text: "徘徊"; color: Tokens.alert; font.family: Tokens.jp; font.pixelSize: 12; anchors.verticalCenter: parent.verticalCenter }
                             Text {
                                 text: I18n.tr("PROWL GATEWAY"); color: Tokens.ink; font.family: Tokens.display
                                 font.pixelSize: 13; anchors.verticalCenter: parent.verticalCenter
@@ -827,7 +830,9 @@ Item {
 
                 Text {
                     width: parent.width
-                    text: I18n.tr("Set up Hermes once: it installs the agent if you don't have it, wires it to the vault, and points your other coding agents at the same map. An existing Hermes install is left untouched.")
+                    text: pg.hermesInstalled && pg.hermesVersion !== ""
+                        ? I18n.tr("Hermes v%1 is installed. Ryoku leaves it untouched; update it through its own installer or checkout, then re-run setup to refresh the vault wiring.").arg(pg.hermesVersion)
+                        : I18n.tr("Set up Hermes once: it installs the agent if you don't have it, wires it to the vault, and points your other coding agents at the same map. An existing Hermes install is left untouched.")
                     color: Tokens.inkDim; font.family: Tokens.mono; font.pixelSize: 12; wrapMode: Text.WordWrap; lineHeight: 1.4
                 }
 

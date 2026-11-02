@@ -24,7 +24,10 @@ Scope {
         anchors { left: true; right: true; top: true; bottom: true }
         exclusionMode: ExclusionMode.Ignore
         WlrLayershell.namespace: "ryoku-dock-shima"
-        WlrLayershell.layer: root.stageEditing ? WlrLayer.Overlay : WlrLayer.Top
+        // The Shima chassis paints this dock's fused body in its Top-layer
+        // field. Keep the icon surface above that field regardless of which
+        // one finishes loading first or whether the shell was just restarted.
+        WlrLayershell.layer: WlrLayer.Overlay
         WlrLayershell.keyboardFocus: dock.menuOpen ? WlrKeyboardFocus.Exclusive : WlrKeyboardFocus.None
         // The dock body is visually reparented through the Stage layer. Mapping
         // it to `rest` collapses to (0, 0), so build the compositor mask from
@@ -79,10 +82,10 @@ Scope {
         exclusionMode: ExclusionMode.Normal
         WlrLayershell.namespace: "ryoku-dock-shima-reserve"
         WlrLayershell.layer: WlrLayer.Bottom
-        exclusiveZone: visible ? dock.thickness + dock.extraEdgeGap : 0
+        exclusiveZone: visible ? Math.max(0, dock.thickness + dock.extraEdgeGap) : 0
         mask: emptyRegion
-        implicitHeight: dock.vertical ? 0 : dock.thickness + dock.extraEdgeGap
-        implicitWidth: dock.vertical ? dock.thickness + dock.extraEdgeGap : 0
+        implicitHeight: dock.vertical ? 0 : Math.max(0, dock.thickness + dock.extraEdgeGap)
+        implicitWidth: dock.vertical ? Math.max(0, dock.thickness + dock.extraEdgeGap) : 0
         anchors {
             left: dock.atLeft || !dock.vertical
             right: dock.atRight || !dock.vertical

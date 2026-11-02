@@ -16,7 +16,7 @@ BuildRequires:  wayland-devel
 BuildRequires:  wayland-protocols-devel
 BuildRequires:  ffmpeg-free-devel
 Requires:       quickshell >= 0.3.0
-Requires:       ffmpeg-free
+Requires:       /usr/bin/ffmpeg
 Requires:       libwayland-client
 Requires:       libwayland-cursor
 Requires:       libwayland-egl
@@ -42,6 +42,7 @@ Requires:       inotify-tools
 Requires:       easyeffects
 Requires:       lsp-plugins-lv2
 Requires:       lv2-calf-plugins
+Suggests:       kde-connect
 
 %description
 ryoku-shell, built from the shared Ryoku source and package payload recipe.

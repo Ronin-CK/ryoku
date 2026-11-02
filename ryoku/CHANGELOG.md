@@ -3,6 +3,50 @@
 ## Unreleased
 
 ### Fixed
+- **The login screen appears without a six-second black screen, at the
+  panel's top refresh rate.** The greeter asked `modetest` for the card by
+  `/dev/dri` path, which its `-D` (a legacy bus id) never opens, so every boot
+  polled until the settle deadline and then fell back to weston's preferred
+  mode. It now probes by DRM driver, keeps only connectors sysfs reports on the
+  chosen card, and starts weston at once when the card cannot be probed
+  (`lockscreen/sddm/ryoku-greeter`).
+- **Super+Arrow crosses screens from fullscreen windows again.** The shortcuts
+  now use Hyprland's width and height fields and fall back to normal directional
+  focus when monitor geometry is unavailable (`hyprland/modules/binds.lua`).
+- **Fullscreen browsers no longer make some HDR displays go black.** Automatic
+  HDR switching starts off on Hyprland, while Settings offers an opt-in switch
+  for panels that handle the mode change (`hyprland/modules/render.lua`,
+  `wm/hyprland/`).
+- **Hyprland no longer draws its splash text at startup.** Splash rendering is
+  off beside the already disabled logo, so the first frame is the wallpaper
+  (`hyprland/modules/misc.lua`, contributed by feelyourwarmth).
+- **Holding a mute, mic-mute or play key on niri toggles once.** niri repeats
+  binds while a key is held, so a slightly long press could mute and unmute
+  the microphone again or pause and resume playback; these toggles now ignore
+  repeat like they do on Hyprland and Wayfire (`wm/niri/config_binds.go`).
+- **niri can always recover desktop shortcuts from an application's keyboard
+  grab.** Controls and the shortcut-inhibit toggle now bypass the inhibitor,
+  matching the recovery bindings on Hyprland and Wayfire
+  (`wm/niri/config_binds.go`).
+- **Rashin history finds conversations in both chat lanes again.** It reads
+  Hermes's current workspace column when ACP omits that metadata, so saved
+  Agent and Chat sessions remain visible and reopenable (`rashin/backend/`).
+- **Game Mode's live strip comes from the shipped Hyprland config.** Turning it on
+  loads the same module that config reloads keep applying while it stays on
+  (`wm/hyprland/act.go`).
+- **Whole column widths and opacities no longer break niri settings.** The
+  provider writes these values as float literals so niri can load the generated
+  config (`wm/niri/config_layout.go`, `wm/niri/config_rules.go`).
+- **Wallpaper previews tint the shell without changing application themes.**
+  Cancelling restores the previous colours, while applying runs the normal
+  theme update (`shell/ryogami/daemon/preview.go`, `shell/quickshell/`).
+- **Desktop apps and folders work under every bar style.** Desktop placement
+  reads the editor's settings again, app choices resolve installed entries,
+  and a new folder opens for renaming after the menu closes. Shima's desktop
+  menu and empty-notifications message read naturally in Spanish
+  (`shell/quickshell/stage/modules/ii/background/shortcuts/DesktopShortcuts.qml`,
+  `shell/quickshell/stage/services/AppSearch.qml`, `ui/Chips.qml`,
+  `shell/quickshell/shell/modules/desktop/DesktopContextMenu.qml`, `i18n/catalog/`).
 - **Bar Studio and RyoStore show every bar style again.** Subshells remain
   grouped on their own pages while also appearing in the complete bar-style
   galleries, with Python selecting its real shell instead of disappearing

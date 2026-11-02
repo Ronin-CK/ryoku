@@ -1,6 +1,18 @@
 # Changelog: installation/
 
 ## Unreleased
+- **Zsh installs open with Ryoku's configured prompt on the first boot.** The
+  Arch, CachyOS and Void installers copy the packaged startup template after
+  selecting Zsh, while leaving an existing `.zshrc` untouched.
+- **Fresh installs keep the launcher radio while leaving its player removable.**
+  The default-on Apps list owns `mpv` and `mpv-mpris` on Fedora and Void;
+  Arch and CachyOS continue to install both from their base set
+  (`installerplan/components.tsv`, `../ryoku-shell-installer/engine.go`).
+- **Shell conversions install headers for their existing kernels.** The
+  installer skips stock `linux-headers` with the rest of the replacement boot
+  chain, reads each installed kernel's `pkgbase`, and adds its matching header
+  package only when pacman's enabled repositories provide it
+  (`../ryoku-shell-installer/engine.go`).
 
 ### Added
 - **The Arch, CachyOS and Void ISOs have one edition-appropriate Gaming
@@ -18,6 +30,17 @@
   (`installerplan/components.tsv`, `tui/main.go`, `backend/lib/deploy.sh`).
 
 ### Fixed
+- **ISO installs finish the sign-in screen setup again.** mkarchiso copies the
+  baked payload without file modes, so the greeter helper that 1.0.6 added
+  (`sddm-host/install-greeter-theme`) reached the target as 0644 and every ISO
+  install stopped at the configure stage with "Permission denied". The
+  backend now restores its executable bit after copying the qylock bundle, as
+  it already does for the two installers it stages (`backend/lib/deploy.sh`).
+- **Fresh installs receive newer Ryoku package overrides.** After the Arch or
+  CachyOS desktop transaction, the installer aligns every installed package
+  that `[ryoku]` serves at a newer version. Both offline ISO repositories
+  compute and bake the same overrides instead of keeping an earlier
+  repository's build (`backend/lib/deploy.sh`, `iso/offline-repo.sh`).
 - **The Void package check sees what a real install gets.** The Void container
   image skips `/etc/skel` and other paths through noextract patterns, so the
   clean-container install could not find the per-user services `ryoku-desktop`

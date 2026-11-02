@@ -17,6 +17,22 @@
   headless one exits at once.
 
 ### Fixed
+- `bluetooth/ryoku-bluetooth-power`: **Bluetooth stays off after login when it
+  was turned off.** The login reset restarts bluetoothd, and BlueZ's
+  `AutoEnable` is still powering the new controller on when `restore` runs, so
+  `power off` was refused with `org.bluez.Error.Busy`, the radio came up on, and
+  `ryoku-bluetooth-reset.service` failed. Turning off now waits for the
+  controller and retries until BlueZ reports it off, as turning on already
+  waited. Covered by `tests/bluetooth-power-persist.sh`.
+- `network/50-ryoku-dns.rules`: **the passwordless DNS grant no longer matches
+  any path ending in `ryoku-dns`.** The rule tested the program with a basename
+  regex, so any executable a local wheel user placed at a path ending in
+  `/ryoku-dns` ran as root through `pkexec` with no password: a local privilege
+  escalation (GHSA-683q-8wvh-7m89). The grant now pins the exact installed
+  helper, `action.lookup("program") === "/usr/bin/ryoku-dns"`, matching every
+  other `ryoku-*` polkit rule. Dev boxes keep working because `deploy.sh`
+  installs the helper to `/usr/bin` and the shell's `dnsHelperPath()` prefers
+  that path.
 - `input/62-ryoku-qmk-hid.rules`: **keyboard lighting returns after hotplug.**
   A connected QMK or Vial board triggers the saved lighting apply for each
   active local desktop user on systemd and Void
